@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+/*
+  FERRO — premium magnetic photo frame D2C brand.
+  Design language: cool bone paper + near-black ink + a single
+  "magnetic field" indigo accent. Signature motif: field-line curves,
+  referencing the product's actual magnetic mechanism rather than a
+  decorative flourish.
+*/
+
+:root {
+  --paper: #eef0f2;
+  --paper-warm: #f4f4f1;
+  --ink: #0f1115;
+  --ink-soft: #33353b;
+  --graphite: #5a5d63;
+  --line: #d7dae0;
+  --indigo: #2f3eff;
+  --indigo-deep: #1c27b3;
+  --success: #1f7a4d;
+  --error: #c22e2e;
+
+  --background: var(--paper);
+  --foreground: var(--ink);
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-paper-warm: var(--paper-warm);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-graphite: var(--graphite);
+  --color-line: var(--line);
+  --color-indigo: var(--indigo);
+  --color-indigo-deep: var(--indigo-deep);
+  --color-success: var(--success);
+  --color-error: var(--error);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --font-display: var(--font-fraunces);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-plex-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+h1, h2, h3, .font-display {
+  font-family: var(--font-display), Georgia, serif;
+}
+
+.font-data {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  letter-spacing: 0.02em;
+}
+
+:focus-visible {
+  outline: 2px solid var(--indigo);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.field-lines {
+  pointer-events: none;
+}
+
+.field-lines path {
+  stroke: var(--indigo);
+  stroke-width: 1;
+  fill: none;
+  opacity: 0.35;
+}
