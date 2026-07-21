@@ -1,0 +1,376 @@
+// Prisma schema for the Magnetic Photo Frame D2C platform
+// Run: npx prisma generate && npx prisma migrate dev --name init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------- Enums ----------
+
+enum Role {
+  CUSTOMER
+  ADMIN
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  PAID
+  PROCESSING
+  MANUFACTURING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentStatus {
+  CREATED
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  REFUNDED
+}
+
+enum CouponType {
+  PERCENTAGE
+  FLAT
+}
+
+// ---------- Auth / Users ----------
+// Supabase Auth owns the credential/session; this table mirrors the profile
+// and is keyed by the Supabase auth.users UUID.
+
+model Profile {
+  id        String   @id @db.Uuid // matches supabase auth.users.id
+  email     String   @unique
+  fullName  String?
+  phone     String?
+  role      Role     @default(CUSTOMER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  addresses Address[]
+  orders    Order[]
+  carts     Cart[]
+
+  @@map("profiles")
+}
+
+model Address {
+  id         String   @id @default(uuid())
+  profile    Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  profileId  String   @db.Uuid
+  fullName   String
+  phone      String
+  line1      String
+  line2      String?
+  city       String
+  state      String
+  pincode    String
+  country    String   @default("India")
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([profileId])
+  @@map("addresses")
+}
+
+// ---------- Catalog (fully admin-managed, no hardcoded values) ----------
+
+model FrameStyle {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  shape       String   // broad filter category: Rectangle, Square, Circle, Heart, Strip
+  shapeStyle  String   @default("rounded-rect") // precise render key, see FrameShapePreview
+  photoSlots  Int      @default(1) // >1 for multi-photo strip products (e.g. K7/K8)
+  material    String?  // e.g. "Premium Magnetic Wood"
+  basePrice   Int      // in paise (INR minor unit)
+  imageUrl    String?
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  sizes       FrameSize[]
+  finishes    FrameFinish[]
+  cartItems   CartItem[]
+  orderItems  OrderItem[]
+
+  @@map("frame_styles")
+}
+
+model FrameSize {
+  id           String     @id @default(uuid())
+  frameStyle   FrameStyle @relation(fields: [frameStyleId], references: [id], onDelete: Cascade)
+  frameStyleId String
+  label        String     // e.g. "8x10 inch"
+  widthMm      Int
+  heightMm     Int
+  thicknessMm  Int
+  priceDelta   Int        @default(0) // added to basePrice, in paise
+  weightGrams  Int        @default(50) // for courier weight calc; acrylic fridge frames are light
+  trackInventory Boolean  @default(false) // if true, stockQuantity is enforced at checkout
+  stockQuantity  Int      @default(0)
+  isActive     Boolean    @default(true)
+  sortOrder    Int        @default(0)
+
+  cartItems    CartItem[]
+  orderItems   OrderItem[]
+
+  @@unique([frameStyleId, label])
+  @@map("frame_sizes")
+}
+
+model FrameFinish {
+  id           String     @id @default(uuid())
+  frameStyle   FrameStyle @relation(fields: [frameStyleId], references: [id], onDelete: Cascade)
+  frameStyleId String
+  name         String     // e.g. "Matte Black", "Walnut Oak", "Glossy White"
+  hexSwatch    String?
+  priceDelta   Int        @default(0)
+  isActive     Boolean    @default(true)
+  sortOrder    Int        @default(0)
+
+  cartItems    CartItem[]
+  orderItems   OrderItem[]
+
+  @@unique([frameStyleId, name])
+  @@map("frame_finishes")
+}
+
+model Coupon {
+  id            String     @id @default(uuid())
+  code          String     @unique
+  type          CouponType
+  value         Int        // percentage (0-100) or flat paise
+  minOrderValue Int        @default(0)
+  maxDiscount   Int?
+  usageLimit    Int?
+  usedCount     Int        @default(0)
+  isActive      Boolean    @default(true)
+  startsAt      DateTime?
+  expiresAt     DateTime?
+  createdAt     DateTime   @default(now())
+
+  orders        Order[]
+
+  @@map("coupons")
+}
+
+// ---------- Cart ----------
+
+model Cart {
+  id        String     @id @default(uuid())
+  profile   Profile?   @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  profileId String?    @db.Uuid
+  sessionId String?    // for guest carts, stored in a cookie
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  items     CartItem[]
+
+  @@index([profileId])
+  @@index([sessionId])
+  @@map("carts")
+}
+
+model CartItem {
+  id            String       @id @default(uuid())
+  cart          Cart         @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  cartId        String
+  frameStyle    FrameStyle   @relation(fields: [frameStyleId], references: [id])
+  frameStyleId  String
+  frameSize     FrameSize    @relation(fields: [frameSizeId], references: [id])
+  frameSizeId   String
+  frameFinish   FrameFinish  @relation(fields: [frameFinishId], references: [id])
+  frameFinishId String
+  quantity      Int          @default(1)
+  unitPrice     Int          // snapshot of price in paise at time of adding
+  /// Array of uploaded photos + crop state, one entry per photo slot:
+  /// [{ imageUrl, thumbnailUrl?, cropX, cropY, zoom, rotation }, ...]
+  /// Most products have exactly one slot; strip products (K7/K8) have 3.
+  images        Json
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([cartId])
+  @@map("cart_items")
+}
+
+// ---------- Orders ----------
+
+model Order {
+  id              String        @id @default(uuid())
+  orderNumber     String        @unique // human-readable, e.g. PF-2026-000123
+  profile         Profile?      @relation(fields: [profileId], references: [id])
+  profileId       String?       @db.Uuid
+
+  // Shipping snapshot (kept independent of Address so history is immutable)
+  customerName    String
+  customerEmail   String
+  customerPhone   String
+  addressLine1    String
+  addressLine2    String?
+  city            String
+  state           String
+  pincode         String
+  country         String        @default("India")
+
+  subtotal        Int           // paise
+  discount        Int           @default(0)
+  shippingFee     Int           @default(0)
+  total           Int           // paise
+
+  coupon          Coupon?       @relation(fields: [couponId], references: [id])
+  couponId        String?
+
+  status          OrderStatus   @default(PENDING_PAYMENT)
+
+  razorpayOrderId String?       @unique
+  razorpayPaymentId String?
+  razorpaySignature String?
+  paymentStatus   PaymentStatus @default(CREATED)
+
+  // Shipping / courier (Shiprocket)
+  shiprocketOrderId    String?
+  shiprocketShipmentId String?
+  courierName          String?
+  trackingId           String?  // AWB number
+  trackingUrl          String?
+
+  items           OrderItem[]
+  timeline        OrderEvent[]
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([profileId])
+  @@index([status])
+  @@map("orders")
+}
+
+model OrderItem {
+  id            String      @id @default(uuid())
+  order         Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId       String
+  frameStyle    FrameStyle  @relation(fields: [frameStyleId], references: [id])
+  frameStyleId  String
+  frameSize     FrameSize   @relation(fields: [frameSizeId], references: [id])
+  frameSizeId   String
+  frameFinish   FrameFinish @relation(fields: [frameFinishId], references: [id])
+  frameFinishId String
+  quantity      Int
+  unitPrice     Int
+  lineTotal     Int
+
+  // Frozen labels so the order record survives catalog edits
+  frameStyleName  String
+  frameSizeLabel  String
+  frameFinishName String
+
+  images        UploadedImage[]
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+model UploadedImage {
+  id             String    @id @default(uuid())
+  orderItem      OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  orderItemId    String
+  originalPath   String    // Supabase Storage path
+  thumbnailPath  String?
+  cropX          Float     @default(0)
+  cropY          Float     @default(0)
+  zoom           Float     @default(1)
+  rotation       Float     @default(0)
+  downloadedAt   DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([orderItemId])
+  @@map("uploaded_images")
+}
+
+// ---------- Marketing content (admin-managed, no hardcoded copy) ----------
+
+model Testimonial {
+  id          String   @id @default(uuid())
+  customerName String
+  customerCity String?
+  rating       Int      @default(5)
+  quote        String
+  photoUrl     String?
+  isActive     Boolean  @default(true)
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  @@map("testimonials")
+}
+
+model GalleryImage {
+  id          String   @id @default(uuid())
+  imageUrl    String
+  caption     String?
+  instagramUrl String?
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@map("gallery_images")
+}
+
+model FaqItem {
+  id        String   @id @default(uuid())
+  question  String
+  answer    String
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+
+  @@map("faq_items")
+}
+
+model ContactMessage {
+  id        String   @id @default(uuid())
+  name      String
+  email     String
+  message   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@map("contact_messages")
+}
+
+model StoreSettings {
+  id                     String   @id @default("singleton")
+  storeName              String   @default("Ferro")
+  supportEmail           String   @default("support@ferro.store")
+  supportPhone           String?
+  shippingFee            Int      @default(0) // paise
+  freeShippingThreshold  Int?     // paise; null = always free at shippingFee above
+  lowStockThreshold      Int      @default(5) // admin gets alerted when tracked stock drops to/below this
+  instagramUrl           String?
+  facebookUrl            String?
+  updatedAt              DateTime @updatedAt
+
+  @@map("store_settings")
+}
+
+model OrderEvent {
+  id        String   @id @default(uuid())
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId   String
+  status    OrderStatus
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
+  @@map("order_events")
+}
