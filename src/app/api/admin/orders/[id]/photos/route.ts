@@ -60,7 +60,7 @@ export async function GET(
     data: { downloadedAt: new Date() },
   });
 
-  return new NextResponse(zipBuffer, {
+return new NextResponse(new Uint8Array(zipBuffer), {
     headers: {
       "Content-Type": "application/zip",
       "Content-Disposition": `attachment; filename="${order.orderNumber}-photos.zip"`,
